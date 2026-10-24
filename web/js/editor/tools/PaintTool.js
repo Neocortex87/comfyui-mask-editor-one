@@ -1,5 +1,7 @@
 import { BaseTool } from "./BaseTool.js";
 
+const SETTINGS_KEY = "me-brush";
+
 export class PaintTool extends BaseTool {
     constructor(drawCanvas, bgCanvas) {
         super(drawCanvas, bgCanvas);
@@ -27,6 +29,8 @@ export class PaintTool extends BaseTool {
         this._stampSize  = 0;
         this._stampHard  = 0;
         this._stampImg   = null;
+
+        this.loadSettings();
     }
 
     activate() {
@@ -37,6 +41,17 @@ export class PaintTool extends BaseTool {
     deactivate() {
         this.drawCanvas.style.cursor = "";
         this._drawing = false;
+    }
+
+    /** Size and hardness are shared by all editors and survive page reloads. */
+    loadSettings() {
+        const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
+        this.brushSize = saved.brushSize ?? this.brushSize;
+        this.hardness  = saved.hardness ?? this.hardness;
+    }
+
+    saveSettings() {
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify({ brushSize: this.brushSize, hardness: this.hardness }));
     }
 
     /** Set an image brush loaded from the library. */

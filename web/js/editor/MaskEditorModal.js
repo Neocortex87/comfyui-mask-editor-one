@@ -85,6 +85,9 @@ export class MaskEditorModal {
                 this._blurSlider.value = this._blurRadius;
                 this._blurNum.value    = this._blurRadius;
             }
+            // 他ノードのエディタで変更されたブラシ設定を反映
+            this._tools.paint.loadSettings();
+            this._renderToolOptions(this._activeTool);
             requestAnimationFrame(() => this._fitToView());
             // BG が変わっている可能性があるので再ロード
             await this._loadNodeImage();
@@ -143,6 +146,7 @@ export class MaskEditorModal {
 
     close() {
         if (this._overlay) this._overlay.style.display = "none";
+        this._tools.paint?.saveSettings();
     }
 
     // ────────────────────────────────────────────
