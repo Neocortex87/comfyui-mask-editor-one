@@ -68,6 +68,9 @@ export class MaskEditorModal {
 
     async open() {
         ensureCSS();
+        // グラフキャンバスにフォーカスが残ると、そちらがキー入力（Space など）を処理して
+        // document のショートカットに届かないため、開いた時点でフォーカスを外す
+        document.activeElement?.blur();
 
         if (this._overlay) {
             this._overlay.style.display = "flex";
