@@ -138,6 +138,17 @@ app.registerExtension({
 
             hideLayerDataWidget(node);
 
+            // ─── convert_to_mask トグル（invert_mask の上） ──
+            // 新しい画像の読み込み時に、画像の明るさから Layer 1 のマスクを生成するか。
+            // エディタ専用の設定なので node.properties に保存し、widgets_values とプロンプトには含めない
+            node.properties.convert_to_mask = true;
+            const convertWidget = node.addWidget("toggle", "convert_to_mask", true,
+                v => { node.properties.convert_to_mask = v; }, { serialize: false });
+            convertWidget.serialize = false;
+            node.widgets.splice(node.widgets.indexOf(convertWidget), 1);
+            node.widgets.splice(node.widgets.findIndex(w => w.name === "invert_mask"), 0, convertWidget);
+            node._convertWidget = convertWidget;
+
             // ─── マスクプレビューコールバック登録 ──────────
             // node オブジェクトをキーにする（onNodeCreated 時点では id=-1 のため id は使わない）
             registerMaskPreviewCallback(node, (maskDataUrl) => {
@@ -301,6 +312,7 @@ app.registerExtension({
             if (origOnConfigure) origOnConfigure.apply(this, arguments);
             hideLayerDataWidget(this);
             this._viewWidget.name = previewButtonLabel(this.properties.preview_mode);
+            this._convertWidget.value = this.properties.convert_to_mask;
             _resizeNode(this);
             if (this.properties?.bg_image) _restoreBgImage(this, this.properties.bg_image);
             _restoreMaskPreview(this);

@@ -128,11 +128,7 @@ export class MaskEditorModal {
         this._blurNum.value    = this._blurRadius;
 
         if (this._layerMgr.layers.length === 0) {
-            if (this._bgImage) {
-                this._imageToMaskLayer(this._bgImage);
-            } else {
-                this._layerMgr.addLayer("paint", t("layers.defaultName", { n: 1 }));
-            }
+            this._addInitialLayer();
         }
 
         this._refreshLayerList();
@@ -1792,7 +1788,7 @@ export class MaskEditorModal {
             this._layerMgr._emit("change");
             this._undoStack = [];
             this._redoStack = [];
-            this._imageToMaskLayer(this._bgImage);
+            this._addInitialLayer();
             this._refreshLayerList();
             this._loadActiveLayerToDrawCanvas();
         } else {
@@ -1959,6 +1955,15 @@ export class MaskEditorModal {
     // 画像 → Layer 1 変換（グレースケールをアルファとして使用）
     // ────────────────────────────────────────────
 
+    /** 初期レイヤー。ノードの convert_to_mask が有効なら BG 画像の明るさからマスクを生成、無効なら空レイヤー */
+    _addInitialLayer() {
+        if (this._bgImage && this.node.properties.convert_to_mask) {
+            this._imageToMaskLayer(this._bgImage);
+        } else {
+            this._layerMgr.addLayer("paint", t("layers.defaultName", { n: 1 }));
+        }
+    }
+
     _imageToMaskLayer(img) {
         const w = this._canvasW;
         const h = this._canvasH;
@@ -2002,11 +2007,11 @@ export class MaskEditorModal {
         persistBgImage(this.node, file);
         // _setBackgroundImage 内で _resizeCanvases が呼ばれ LayerManager のサイズも更新される
         await this._setBackgroundImage(dataUrl);
-        // 既存レイヤーをすべてクリアして画像から Layer 1 を生成
+        // 既存レイヤーをすべてクリアして Layer 1 を生成
         this._layerMgr.layers = [];
         this._layerMgr.activeIndex = 0;
         this._layerMgr._emit("change");
-        this._imageToMaskLayer(this._bgImage);
+        this._addInitialLayer();
         this._loadActiveLayerToDrawCanvas();
         this._renderBg();
         this._updatePreview();
