@@ -372,7 +372,7 @@ async function _loadFileAsBg(node, file) {
             if (lw) lw.value = "{}";
             _resizeNode(node);
             node.setDirtyCanvas(true, true);
-            _modalCache.get(node)?.reloadBackground(dataUrl);
+            _modalCache.get(node.id)?.reloadBackground(dataUrl);
             resolve();
         };
         reader.readAsDataURL(file);
