@@ -1363,6 +1363,10 @@ export class MaskEditorModal {
                 this._tools.vector.onMouseDown(x, y, e);
                 return;
             }
+            if (this._activeTool === "paint" && e.button === 2 && e.altKey) {
+                this._startBrushAdjust(e);
+                return;
+            }
 
             this._painting = true;
             this._saveUndoState();
@@ -1431,6 +1435,65 @@ export class MaskEditorModal {
             const me = new MouseEvent("mouseup", {});
             cv.dispatchEvent(me);
         }, { passive: false });
+    }
+
+    /**
+     * Alt+右ドラッグでブラシ調整（Photoshop 風）
+     * 左右: サイズ、上: 柔らかく / 下: 硬く。値は即時反映、押下位置にプレビューを表示
+     */
+    _startBrushAdjust(e) {
+        e.preventDefault();
+        // contextmenu は OS により mousedown 直後または mouseup 後に1回だけ発火する
+        document.addEventListener("contextmenu", ev => ev.preventDefault(), { capture: true, once: true });
+
+        const tool = this._tools.paint;
+        const { x, y } = BaseTool.getCanvasPos(this._drawCanvas, e);
+        const startSize = tool.brushSize;
+        const startHard = tool.hardness;
+        const startX = e.clientX, startY = e.clientY;
+
+        const onMove = e2 => {
+            const size = startSize + 2 * (e2.clientX - startX) / this._zoom;
+            const hard = startHard + (e2.clientY - startY) / 200;
+            tool.brushSize = Math.round(Math.min(300, Math.max(5, size)));
+            tool.hardness  = Math.round(Math.min(1, Math.max(0, hard)) * 100) / 100;
+            this._drawBrushIndicator(x, y);
+        };
+        const onUp = e2 => {
+            if (e2.button !== 2) return;
+            document.removeEventListener("mousemove", onMove);
+            document.removeEventListener("mouseup", onUp);
+            const vp = this._vectorPreviewCanvas;
+            vp.getContext("2d").clearRect(0, 0, vp.width, vp.height);
+            this._renderToolOptions("paint");
+        };
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+        this._drawBrushIndicator(x, y);
+    }
+
+    _drawBrushIndicator(x, y) {
+        const tool = this._tools.paint;
+        const vp  = this._vectorPreviewCanvas;
+        const ctx = vp.getContext("2d");
+        ctx.clearRect(0, 0, vp.width, vp.height);
+
+        const orig = tool.ctx;
+        tool.ctx = ctx;
+        if (tool.brushImage) tool._paintImageBrush(x, y, "add");
+        else tool._paintCircle(x, y, "add");
+        tool.ctx = orig;
+
+        ctx.globalCompositeOperation = "source-in";
+        ctx.fillStyle = this._overlayColor;
+        ctx.fillRect(0, 0, vp.width, vp.height);
+        ctx.globalCompositeOperation = "source-over";
+
+        ctx.beginPath();
+        ctx.arc(x, y, tool.brushSize / 2, 0, Math.PI * 2);
+        ctx.lineWidth   = 1 / this._zoom;
+        ctx.strokeStyle = "white";
+        ctx.stroke();
     }
 
     /** アクティブレイヤーの内容を _drawCanvas にロード */
