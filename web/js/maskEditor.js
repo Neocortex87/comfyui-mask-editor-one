@@ -2,7 +2,7 @@
 import { app } from "../../../scripts/app.js";
 import { MaskEditorModal } from "./editor/MaskEditorModal.js";
 import { t } from "./editor/i18n.js";
-import { registerMaskPreviewCallback, unregisterMaskPreviewCallback } from "./editor/nodeState.js";
+import { registerMaskPreviewCallback, unregisterMaskPreviewCallback, nextPreviewMode, previewButtonLabel } from "./editor/nodeState.js";
 
 const _modalCache = new Map();
 
@@ -63,6 +63,24 @@ function _loadImage(src) {
     });
 }
 
+// マスク画像の黒い部分に半透明の赤オーバーレイを生成
+// エディタのクイックマスク表示と同じく、invert 時は描いた部分が赤くなる
+function _makeMaskOverlay(maskImg) {
+    const c = document.createElement("canvas");
+    c.width  = maskImg.naturalWidth;
+    c.height = maskImg.naturalHeight;
+    const ctx = c.getContext("2d");
+    ctx.drawImage(maskImg, 0, 0);
+    const data = ctx.getImageData(0, 0, c.width, c.height);
+    const d = data.data;
+    for (let i = 0; i < d.length; i += 4) {
+        d[i + 3] = (255 - d[i]) * 0.5;
+        d[i] = 255; d[i + 1] = 0; d[i + 2] = 0;
+    }
+    ctx.putImageData(data, 0, 0);
+    return c;
+}
+
 // ノードプレビューの高さ
 const PREVIEW_H = 160;
 
@@ -85,9 +103,9 @@ app.registerExtension({
                 node._maskDataUrl = maskDataUrl;
                 _loadImage(maskDataUrl).then(img => {
                     node._maskImg = img;
+                    node._maskOverlay = _makeMaskOverlay(img);
                     node._previewMode = "mask";
-                    // mask表示中 → ボタンは「画像に切り替え」を示す
-                    if (node._viewWidget) node._viewWidget.name = t("node.showImage");
+                    if (node._viewWidget) node._viewWidget.name = previewButtonLabel("mask");
                     _resizeNode(node);
                     node.setDirtyCanvas(true, true);
                 });
@@ -98,7 +116,8 @@ app.registerExtension({
             node._bgImg         = null;   // BG Image オブジェクト
             node._maskDataUrl   = null;   // Apply 後のマスクプレビュー data URL
             node._maskImg       = null;   // マスク Image オブジェクト
-            node._previewMode   = "image"; // "image" | "mask"
+            node._maskOverlay   = null;   // masked 表示用の半透明赤オーバーレイ canvas
+            node._previewMode   = "image"; // "image" | "mask" | "masked"
 
             // ─── BG ボタン ─────────────────────────────────
             const bgWidget = node.addWidget("button", t("node.loadImage"), null, () => {
@@ -114,11 +133,11 @@ app.registerExtension({
             });
             node._bgWidget = bgWidget;
 
-            // ─── IMG / MASK 切り替えボタン ─────────────────
+            // ─── IMG / MASK / MASKED 切り替えボタン ────────
             // ボタン名は「次にクリックすると切り替わる先」を示す
-            const viewWidget = node.addWidget("button", t("node.showMask"), null, () => {
-                node._previewMode = node._previewMode === "image" ? "mask" : "image";
-                viewWidget.name   = node._previewMode === "image" ? t("node.showMask") : t("node.showImage");
+            const viewWidget = node.addWidget("button", previewButtonLabel("image"), null, () => {
+                node._previewMode = nextPreviewMode(node._previewMode);
+                viewWidget.name   = previewButtonLabel(node._previewMode);
                 _resizeNode(node);
                 node.setDirtyCanvas(true, true);
             });
@@ -148,12 +167,15 @@ app.registerExtension({
                     const dx = x + (w - dw) / 2;
                     const dy = y + (h - dh) / 2;
                     ctx.drawImage(img, dx, dy, dw, dh);
+                    if (this._previewMode === "masked" && this._maskOverlay) {
+                        ctx.drawImage(this._maskOverlay, dx, dy, dw, dh);
+                    }
 
                     ctx.fillStyle = "rgba(0,0,0,0.55)";
                     ctx.fillRect(x, y, 52, 16);
                     ctx.fillStyle = "#ccc";
                     ctx.font = "10px sans-serif";
-                    ctx.fillText(this._previewMode === "image" ? "IMAGE" : "MASK", x + 4, y + 11);
+                    ctx.fillText(this._previewMode.toUpperCase(), x + 4, y + 11);
                 } else {
                     ctx.strokeStyle = "#444";
                     ctx.lineWidth = 1;
@@ -284,7 +306,7 @@ async function _loadFileAsBg(node, file) {
             node._bgDataUrl   = dataUrl;
             node._bgImg       = await _loadImage(dataUrl);
             node._previewMode = "image";
-            if (node._viewWidget) node._viewWidget.name = t("node.showMask");
+            if (node._viewWidget) node._viewWidget.name = previewButtonLabel("image");
             _storeBgImage(node.id, dataUrl, file.name);
             const lw = node.widgets?.find(w => w.name === "layer_data");
             if (lw) lw.value = "{}";

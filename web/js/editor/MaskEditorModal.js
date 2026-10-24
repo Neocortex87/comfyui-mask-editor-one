@@ -10,7 +10,7 @@ import { Sam3Tool } from "./tools/Sam3Tool.js";
 import { BiRefNetTool } from "./tools/BiRefNetTool.js";
 import { BaseTool } from "./tools/BaseTool.js";
 import { BrushLibrary } from "./BrushLibrary.js";
-import { notifyMaskPreviewUpdate } from "./nodeState.js";
+import { notifyMaskPreviewUpdate, previewButtonLabel } from "./nodeState.js";
 import { t, getLang, setLang } from "./i18n.js";
 
 const CSS_URL = new URL("../../css/maskEditor.css", import.meta.url);
@@ -2078,8 +2078,7 @@ export class MaskEditorModal {
         // ノードウィジェットのラベルも新言語に更新
         const node = this.node;
         if (node._viewWidget) {
-            node._viewWidget.name = node._previewMode === "image"
-                ? t("node.showImage") : t("node.showMask");
+            node._viewWidget.name = previewButtonLabel(node._previewMode);
         }
         if (node._bgWidget) {
             node._bgWidget.name = t("node.loadImage");
