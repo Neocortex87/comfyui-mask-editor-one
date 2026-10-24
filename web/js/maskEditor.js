@@ -63,12 +63,31 @@ function _loadImage(src) {
     });
 }
 
+// マスクプレビューを不透明なグレースケール canvas に変換
+// （invert 時の PNG は白+アルファなので黒背景に合成する。invert=true で白黒反転）
+function _maskToCanvas(img, invert) {
+    const c = document.createElement("canvas");
+    c.width  = img.width;
+    c.height = img.height;
+    const ctx = c.getContext("2d");
+    ctx.fillStyle = "black";
+    ctx.fillRect(0, 0, c.width, c.height);
+    ctx.drawImage(img, 0, 0);
+    if (invert) {
+        ctx.globalCompositeOperation = "difference";
+        ctx.fillStyle = "white";
+        ctx.fillRect(0, 0, c.width, c.height);
+        ctx.globalCompositeOperation = "source-over";
+    }
+    return c;
+}
+
 // マスク画像の黒い部分に半透明の赤オーバーレイを生成
 // エディタのクイックマスク表示と同じく、invert 時は描いた部分が赤くなる
 function _makeMaskOverlay(maskImg) {
     const c = document.createElement("canvas");
-    c.width  = maskImg.naturalWidth;
-    c.height = maskImg.naturalHeight;
+    c.width  = maskImg.width;
+    c.height = maskImg.height;
     const ctx = c.getContext("2d");
     ctx.drawImage(maskImg, 0, 0);
     const data = ctx.getImageData(0, 0, c.width, c.height);
@@ -102,8 +121,8 @@ app.registerExtension({
             registerMaskPreviewCallback(node, (maskDataUrl) => {
                 node._maskDataUrl = maskDataUrl;
                 _loadImage(maskDataUrl).then(img => {
-                    node._maskImg = img;
-                    node._maskOverlay = _makeMaskOverlay(img);
+                    node._maskImg = _maskToCanvas(img, false);
+                    node._maskOverlay = _makeMaskOverlay(node._maskImg);
                     node._previewMode = "mask";
                     if (node._viewWidget) node._viewWidget.name = previewButtonLabel("mask");
                     _resizeNode(node);
@@ -115,7 +134,7 @@ app.registerExtension({
             node._bgDataUrl     = null;   // BG 選択画像の data URL
             node._bgImg         = null;   // BG Image オブジェクト
             node._maskDataUrl   = null;   // Apply 後のマスクプレビュー data URL
-            node._maskImg       = null;   // マスク Image オブジェクト
+            node._maskImg       = null;   // マスク（グレースケール canvas）
             node._maskOverlay   = null;   // masked 表示用の半透明赤オーバーレイ canvas
             node._previewMode   = "image"; // "image" | "mask" | "masked"
 
@@ -143,6 +162,20 @@ app.registerExtension({
             });
             node._viewWidget = viewWidget;
 
+            // ─── invert_mask 切り替えでプレビューを即時反転 ───
+            // Apply 時の compositeGray と同じ結果（値 v → 255 - v）になる
+            const invertWidget = node.widgets.find(w => w.name === "invert_mask");
+            const origInvertCallback = invertWidget.callback;
+            invertWidget.callback = function () {
+                const res = origInvertCallback?.apply(this, arguments);
+                if (node._maskImg) {
+                    node._maskImg     = _maskToCanvas(node._maskImg, true);
+                    node._maskOverlay = _makeMaskOverlay(node._maskImg);
+                    node.setDirtyCanvas(true, true);
+                }
+                return res;
+            };
+
             // ─── Edit Mask ボタン ──────────────────────────
             node._editMaskWidget = node.addWidget("button", t("node.editMask"), null, () => openMaskEditor(node));
 
@@ -161,9 +194,9 @@ app.registerExtension({
 
                 const img = this._previewMode === "mask" ? this._maskImg : this._bgImg;
                 if (img) {
-                    const scale = Math.min(w / img.naturalWidth, h / img.naturalHeight);
-                    const dw = img.naturalWidth  * scale;
-                    const dh = img.naturalHeight * scale;
+                    const scale = Math.min(w / img.width, h / img.height);
+                    const dw = img.width  * scale;
+                    const dh = img.height * scale;
                     const dx = x + (w - dw) / 2;
                     const dy = y + (h - dh) / 2;
                     ctx.drawImage(img, dx, dy, dw, dh);
