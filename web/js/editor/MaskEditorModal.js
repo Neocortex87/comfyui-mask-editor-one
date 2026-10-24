@@ -1993,27 +1993,10 @@ export class MaskEditorModal {
         }
 
         // マスクプレビュー（白黒）をノードに反映
-        // composite() はアルファベースを返すため、黒背景に合成してグレースケール化
-        const alphaMask = this._compositor.composite(
-            this._layerMgr.layers, this._canvasW, this._canvasH
+        const grayMask = this._compositor.compositeGray(
+            this._layerMgr.layers, this._canvasW, this._canvasH, this._inverted
         );
-        const toGray = (src, invert) => {
-            const gc = document.createElement("canvas");
-            gc.width = this._canvasW; gc.height = this._canvasH;
-            const gCtx = gc.getContext("2d");
-            if (invert) {
-                gCtx.fillStyle = "white";
-                gCtx.fillRect(0, 0, this._canvasW, this._canvasH);
-                gCtx.globalCompositeOperation = "destination-out";
-            } else {
-                gCtx.fillStyle = "black";
-                gCtx.fillRect(0, 0, this._canvasW, this._canvasH);
-            }
-            gCtx.drawImage(src, 0, 0);
-            gCtx.globalCompositeOperation = "source-over";
-            return gc;
-        };
-        notifyMaskPreviewUpdate(this.node, toGray(alphaMask, this._inverted).toDataURL("image/png"));
+        notifyMaskPreviewUpdate(this.node, grayMask.toDataURL("image/png"));
 
         this.close();
     }

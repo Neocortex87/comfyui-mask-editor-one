@@ -2,7 +2,9 @@
 import { app } from "../../../scripts/app.js";
 import { MaskEditorModal } from "./editor/MaskEditorModal.js";
 import { t } from "./editor/i18n.js";
-import { registerMaskPreviewCallback, unregisterMaskPreviewCallback, persistBgImage } from "./editor/nodeState.js";
+import { LayerManager } from "./editor/LayerManager.js";
+import { CanvasCompositor } from "./editor/CanvasCompositor.js";
+import { registerMaskPreviewCallback, unregisterMaskPreviewCallback, notifyMaskPreviewUpdate, persistBgImage } from "./editor/nodeState.js";
 
 const _modalCache = new Map();
 
@@ -225,6 +227,7 @@ app.registerExtension({
             hideLayerDataWidget(this);
             _resizeNode(this);
             if (this.properties?.bg_image) _restoreBgImage(this, this.properties.bg_image);
+            _restoreMaskPreview(this);
         };
 
         // ノード削除時にモーダルキャッシュ・コールバック・ドロップハンドラをクリア
@@ -314,5 +317,18 @@ async function _restoreBgImage(node, bg) {
     node._bgImg     = await _loadImage(dataUrl);
     _storeBgImage(node.id, dataUrl, bg.filename);
     node.setDirtyCanvas(true, true);
+}
+
+// ワークフローに保存された layer_data からマスクプレビューを再生成
+async function _restoreMaskPreview(node) {
+    const value = node.widgets?.find(w => w.name === "layer_data")?.value;
+    let json;
+    try { json = JSON.parse(value); } catch { return; }
+    if (!json?.layers?.length) return;
+    const layerMgr = new LayerManager(json.width ?? 512, json.height ?? 512);
+    await layerMgr.fromJSON(json);
+    const inverted = !!node.widgets?.find(w => w.name === "invert_mask")?.value;
+    const gray = new CanvasCompositor().compositeGray(layerMgr.layers, layerMgr.width, layerMgr.height, inverted);
+    notifyMaskPreviewUpdate(node, gray.toDataURL("image/png"));
 }
 
