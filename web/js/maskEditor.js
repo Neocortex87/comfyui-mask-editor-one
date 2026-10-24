@@ -2,7 +2,7 @@
 import { app } from "../../../scripts/app.js";
 import { MaskEditorModal } from "./editor/MaskEditorModal.js";
 import { t } from "./editor/i18n.js";
-import { registerMaskPreviewCallback, unregisterMaskPreviewCallback } from "./editor/nodeState.js";
+import { registerMaskPreviewCallback, unregisterMaskPreviewCallback, persistBgImage } from "./editor/nodeState.js";
 
 const _modalCache = new Map();
 
@@ -224,6 +224,7 @@ app.registerExtension({
             if (origOnConfigure) origOnConfigure.apply(this, arguments);
             hideLayerDataWidget(this);
             _resizeNode(this);
+            if (this.properties?.bg_image) _restoreBgImage(this, this.properties.bg_image);
         };
 
         // ノード削除時にモーダルキャッシュ・コールバック・ドロップハンドラをクリア
@@ -286,6 +287,7 @@ async function _loadFileAsBg(node, file) {
             node._previewMode = "image";
             if (node._viewWidget) node._viewWidget.name = t("node.showMask");
             _storeBgImage(node.id, dataUrl, file.name);
+            persistBgImage(node, file);
             const lw = node.widgets?.find(w => w.name === "layer_data");
             if (lw) lw.value = "{}";
             _resizeNode(node);
@@ -295,5 +297,22 @@ async function _loadFileAsBg(node, file) {
         };
         reader.readAsDataURL(file);
     });
+}
+
+// ワークフローに保存された参照から BG 画像を復元（input フォルダから読み込み）
+async function _restoreBgImage(node, bg) {
+    const params = new URLSearchParams({ filename: bg.name, subfolder: bg.subfolder, type: "input" });
+    const res = await fetch("/view?" + params).catch(() => null);
+    if (!res?.ok) return;
+    const blob = await res.blob();
+    const dataUrl = await new Promise(resolve => {
+        const reader = new FileReader();
+        reader.onload = ev => resolve(ev.target.result);
+        reader.readAsDataURL(blob);
+    });
+    node._bgDataUrl = dataUrl;
+    node._bgImg     = await _loadImage(dataUrl);
+    _storeBgImage(node.id, dataUrl, bg.filename);
+    node.setDirtyCanvas(true, true);
 }
 
