@@ -53,6 +53,15 @@ function _storeBgImage(nodeId, dataUrl, filename = "") {
     }).catch(() => {});
 }
 
+// Paste (Clipspace): 選択中の画像を新しい BG として読み込む（マスクはリセット）
+async function _pasteClipspaceImage(node, clipspace) {
+    const img = clipspace.imgs?.[clipspace.selectedIndex];
+    if (!img) return;
+    const blob = await (await fetch(img.src)).blob();
+    const name = new URL(img.src, location.href).searchParams.get("filename") || "clipspace.png";
+    await _loadFileAsBg(node, new File([blob], name, { type: blob.type }));
+}
+
 // Image オブジェクトを非同期ロード
 function _loadImage(src) {
     return new Promise(resolve => {
@@ -68,6 +77,17 @@ const PREVIEW_H = 160;
 
 app.registerExtension({
     name: "ComfyUI.MaskEditorOne",
+
+    setup() {
+        // 標準の Paste (Clipspace) は node.imgs とウィジェット値（layer_data 含む）をコピーするだけで
+        // このノードの BG には反映されないため、MaskEditorOne のみ画像の読み込みに置き換える
+        const ComfyApp = app.constructor;
+        const origPaste = ComfyApp.pasteFromClipspace;
+        ComfyApp.pasteFromClipspace = function (node) {
+            if (node.comfyClass !== "MaskEditorOne") return origPaste.apply(this, arguments);
+            if (ComfyApp.clipspace) _pasteClipspaceImage(node, ComfyApp.clipspace);
+        };
+    },
 
     async beforeRegisterNodeDef(nodeType, nodeData) {
         if (nodeData.name !== "MaskEditorOne") return;
