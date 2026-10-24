@@ -56,6 +56,7 @@ export class MaskEditorModal {
         this._canvasW    = CANVAS_SIZE;
         this._canvasH    = CANVAS_SIZE;
         this._painting   = false;
+        this._brushAdjusting = false;
         this._zoom       = 1.0;
         this._zoomMin    = 0.05;
         this._zoomMax    = 8.0;
@@ -342,6 +343,7 @@ export class MaskEditorModal {
         this._tools.shape.setPreviewCanvas(this._vectorPreviewCanvas);
         this._tools.sam3         = new Sam3Tool(this._drawCanvas, this._bgCanvas);
         this._tools.birefnet     = new BiRefNetTool(this._drawCanvas, this._bgCanvas);
+        this._tools[this._activeTool]?.activate();
 
         // onChange: drawCanvas → layer.canvas に同期
         for (const tool of Object.values(this._tools)) {
@@ -1430,18 +1432,24 @@ export class MaskEditorModal {
             document.addEventListener("mouseup", onDocUp);
         });
 
-        // vector のホバー追跡のみキャンバスレベルで処理
-        // shape / paint の mousemove は mousedown 後の document レベルリスナーで処理
+        // vector のホバー追跡と paint のブラシカーソルのみキャンバスレベルで処理
+        // shape / paint の描画 mousemove は mousedown 後の document レベルリスナーで処理
         cv.addEventListener("mousemove", e => {
             if (this._activeTool === "vector") {
                 const { x, y } = BaseTool.getCanvasPos(cv, e);
                 this._tools.vector.onMouseMove(x, y, e);
+            } else if (this._activeTool === "paint" && !this._brushAdjusting) {
+                const { x, y } = BaseTool.getCanvasPos(cv, e);
+                this._updateBrushCursor(x, y);
             }
         });
 
         cv.addEventListener("mouseleave", () => {
             if (this._activeTool === "vector") {
                 this._tools.vector.onMouseLeave();
+            } else if (this._activeTool === "paint" && !this._brushAdjusting) {
+                const vp = this._vectorPreviewCanvas;
+                vp.getContext("2d").clearRect(0, 0, vp.width, vp.height);
             }
             // shape / paint: _painting を維持（document mouseup まで描画継続）
         });
@@ -1480,6 +1488,8 @@ export class MaskEditorModal {
         const startSize = tool.brushSize;
         const startHard = tool.hardness;
         const startX = e.clientX, startY = e.clientY;
+        this._brushAdjusting = true;
+        this._drawCanvas.style.cursor = "none";
 
         const onMove = e2 => {
             const size = startSize + 2 * (e2.clientX - startX) / this._zoom;
@@ -1492,8 +1502,14 @@ export class MaskEditorModal {
             if (e2.button !== 2) return;
             document.removeEventListener("mousemove", onMove);
             document.removeEventListener("mouseup", onUp);
-            const vp = this._vectorPreviewCanvas;
-            vp.getContext("2d").clearRect(0, 0, vp.width, vp.height);
+            this._brushAdjusting = false;
+            if (e2.target === this._drawCanvas) {
+                const pos = BaseTool.getCanvasPos(this._drawCanvas, e2);
+                this._updateBrushCursor(pos.x, pos.y);
+            } else {
+                const vp = this._vectorPreviewCanvas;
+                vp.getContext("2d").clearRect(0, 0, vp.width, vp.height);
+            }
             this._renderToolOptions("paint");
         };
         document.addEventListener("mousemove", onMove);
@@ -1518,8 +1534,40 @@ export class MaskEditorModal {
         ctx.fillRect(0, 0, vp.width, vp.height);
         ctx.globalCompositeOperation = "source-over";
 
+        this._strokeBrushOutline(ctx, x, y);
+    }
+
+    /**
+     * paint ツールのカーソル（ブラシサイズの円）
+     * CSS カーソルは OS が描画するため遅延がない。ブラウザのカーソル画像上限 (128px) を超える場合のみキャンバスに描画
+     */
+    _updateBrushCursor(x, y) {
+        const vp  = this._vectorPreviewCanvas;
+        const ctx = vp.getContext("2d");
+        ctx.clearRect(0, 0, vp.width, vp.height);
+
+        const d    = Math.max(this._tools.paint.brushSize * this._zoom, 4);
+        const size = 2 * Math.ceil(d / 2 + 2);
+        if (size <= 128) {
+            const c = size / 2;
+            const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}">`
+                + `<circle cx="${c}" cy="${c}" r="${d / 2}" fill="none" stroke="rgba(0,0,0,0.6)" stroke-width="3"/>`
+                + `<circle cx="${c}" cy="${c}" r="${d / 2}" fill="none" stroke="white" stroke-width="1"/></svg>`;
+            this._drawCanvas.style.cursor = `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${c} ${c}, crosshair`;
+        } else {
+            this._drawCanvas.style.cursor = "none";
+            this._strokeBrushOutline(ctx, x, y);
+        }
+    }
+
+    /** 白い円 + 暗い縁取り（明るい画像上でも見えるように）。線幅は画面上で一定 */
+    _strokeBrushOutline(ctx, x, y) {
+        const r = Math.max(this._tools.paint.brushSize / 2, 2 / this._zoom);
         ctx.beginPath();
-        ctx.arc(x, y, tool.brushSize / 2, 0, Math.PI * 2);
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.lineWidth   = 3 / this._zoom;
+        ctx.strokeStyle = "rgba(0,0,0,0.6)";
+        ctx.stroke();
         ctx.lineWidth   = 1 / this._zoom;
         ctx.strokeStyle = "white";
         ctx.stroke();
