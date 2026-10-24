@@ -87,8 +87,29 @@ function _loadImage(src) {
 // ノードプレビューの高さ
 const PREVIEW_H = 160;
 
+// ショートカットの対象: 選択中の MaskEditorOne、なければグラフ内に 1 つだけある MaskEditorOne
+function _shortcutTargetNode() {
+    const isMaskEditor = n => n.comfyClass === "MaskEditorOne";
+    const selected = Object.values(app.canvas.selected_nodes ?? {}).filter(isMaskEditor);
+    if (selected.length === 1) return selected[0];
+    const all = (app.canvas.graph?.nodes ?? []).filter(isMaskEditor);
+    return all.length === 1 ? all[0] : null;
+}
+
 app.registerExtension({
     name: "ComfyUI.MaskEditorOne",
+
+    // ComfyUI のキーバインド設定から変更可能
+    commands: [{
+        id: "MaskEditorOne.LoadGeneratedAndEdit",
+        label: "Mask Editor One: Load Generated Image & Edit",
+        function: () => {
+            const node = _shortcutTargetNode();
+            if (node) _loadGeneratedAndEdit(node);
+            else app.extensionManager.toast.add({ severity: "warn", summary: "Mask Editor One", detail: t("node.selectMaskEditor"), life: 4000 });
+        },
+    }],
+    keybindings: [{ combo: { key: "F2" }, commandId: "MaskEditorOne.LoadGeneratedAndEdit" }],
 
     async beforeRegisterNodeDef(nodeType, nodeData) {
         if (nodeData.name !== "MaskEditorOne") return;
