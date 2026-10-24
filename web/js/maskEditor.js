@@ -123,8 +123,6 @@ app.registerExtension({
                 _loadImage(maskDataUrl).then(img => {
                     node._maskImg = _maskToCanvas(img, false);
                     node._maskOverlay = _makeMaskOverlay(node._maskImg);
-                    node._previewMode = "mask";
-                    if (node._viewWidget) node._viewWidget.name = previewButtonLabel("mask");
                     _resizeNode(node);
                     node.setDirtyCanvas(true, true);
                 });
@@ -136,7 +134,8 @@ app.registerExtension({
             node._maskDataUrl   = null;   // Apply 後のマスクプレビュー data URL
             node._maskImg       = null;   // マスク（グレースケール canvas）
             node._maskOverlay   = null;   // masked 表示用の半透明赤オーバーレイ canvas
-            node._previewMode   = "image"; // "image" | "mask" | "masked"
+            // 表示モード "image" | "mask" | "masked"。ワークフローに保存され、切り替え後も維持される
+            node.properties.preview_mode = "masked";
 
             // ─── BG ボタン ─────────────────────────────────
             const bgWidget = node.addWidget("button", t("node.loadImage"), null, () => {
@@ -154,9 +153,9 @@ app.registerExtension({
 
             // ─── IMG / MASK / MASKED 切り替えボタン ────────
             // ボタン名は「次にクリックすると切り替わる先」を示す
-            const viewWidget = node.addWidget("button", previewButtonLabel("image"), null, () => {
-                node._previewMode = nextPreviewMode(node._previewMode);
-                viewWidget.name   = previewButtonLabel(node._previewMode);
+            const viewWidget = node.addWidget("button", previewButtonLabel(node.properties.preview_mode), null, () => {
+                node.properties.preview_mode = nextPreviewMode(node.properties.preview_mode);
+                viewWidget.name = previewButtonLabel(node.properties.preview_mode);
                 _resizeNode(node);
                 node.setDirtyCanvas(true, true);
             });
@@ -192,7 +191,8 @@ app.registerExtension({
                 ctx.fillStyle = "#111";
                 ctx.fillRect(x, y, w, h);
 
-                const img = this._previewMode === "mask" ? this._maskImg : this._bgImg;
+                const mode = this.properties.preview_mode;
+                const img = mode === "mask" ? this._maskImg : this._bgImg;
                 if (img) {
                     const scale = Math.min(w / img.width, h / img.height);
                     const dw = img.width  * scale;
@@ -200,7 +200,7 @@ app.registerExtension({
                     const dx = x + (w - dw) / 2;
                     const dy = y + (h - dh) / 2;
                     ctx.drawImage(img, dx, dy, dw, dh);
-                    if (this._previewMode === "masked" && this._maskOverlay) {
+                    if (mode === "masked" && this._maskOverlay) {
                         ctx.drawImage(this._maskOverlay, dx, dy, dw, dh);
                     }
 
@@ -208,7 +208,7 @@ app.registerExtension({
                     ctx.fillRect(x, y, 52, 16);
                     ctx.fillStyle = "#ccc";
                     ctx.font = "10px sans-serif";
-                    ctx.fillText(this._previewMode.toUpperCase(), x + 4, y + 11);
+                    ctx.fillText(mode.toUpperCase(), x + 4, y + 11);
                 } else {
                     ctx.strokeStyle = "#444";
                     ctx.lineWidth = 1;
@@ -278,6 +278,7 @@ app.registerExtension({
         nodeType.prototype.onConfigure = function (info) {
             if (origOnConfigure) origOnConfigure.apply(this, arguments);
             hideLayerDataWidget(this);
+            this._viewWidget.name = previewButtonLabel(this.properties.preview_mode);
             _resizeNode(this);
         };
 
@@ -338,8 +339,9 @@ async function _loadFileAsBg(node, file) {
             const dataUrl = ev.target.result;
             node._bgDataUrl   = dataUrl;
             node._bgImg       = await _loadImage(dataUrl);
-            node._previewMode = "image";
-            if (node._viewWidget) node._viewWidget.name = previewButtonLabel("image");
+            // layer_data をリセットするのでマスクプレビューも破棄
+            node._maskImg     = null;
+            node._maskOverlay = null;
             _storeBgImage(node.id, dataUrl, file.name);
             const lw = node.widgets?.find(w => w.name === "layer_data");
             if (lw) lw.value = "{}";

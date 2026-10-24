@@ -2078,7 +2078,7 @@ export class MaskEditorModal {
         // ノードウィジェットのラベルも新言語に更新
         const node = this.node;
         if (node._viewWidget) {
-            node._viewWidget.name = previewButtonLabel(node._previewMode);
+            node._viewWidget.name = previewButtonLabel(node.properties.preview_mode);
         }
         if (node._bgWidget) {
             node._bgWidget.name = t("node.loadImage");
