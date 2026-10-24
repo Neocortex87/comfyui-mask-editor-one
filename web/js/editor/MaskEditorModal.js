@@ -1623,15 +1623,20 @@ export class MaskEditorModal {
     // 入力画像ロード
     // ────────────────────────────────────────────
 
-    /** BGボタンで画像が変更された際に外部から呼ぶ。モーダルが非表示なら何もしない */
+    /**
+     * BGボタンで画像が変更された際に外部から呼ぶ。
+     * 非表示でも実行する（キャッシュされたエディタに古いレイヤーが残り、Apply で旧マスクが戻るのを防ぐ）
+     */
     async reloadBackground(dataUrl) {
-        if (!this._overlay || this._overlay.style.display === "none") return;
+        if (!this._overlay) return;
         if (dataUrl) {
             await this._setBackgroundImage(dataUrl);
             // 新画像読み込み時は既存レイヤーをすべてクリアして Layer 1 を生成
             this._layerMgr.layers = [];
             this._layerMgr.activeIndex = 0;
             this._layerMgr._emit("change");
+            this._undoStack = [];
+            this._redoStack = [];
             this._imageToMaskLayer(this._bgImage);
             this._refreshLayerList();
             this._loadActiveLayerToDrawCanvas();
