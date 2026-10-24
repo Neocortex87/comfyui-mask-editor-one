@@ -18,10 +18,9 @@ export class PaintTool extends BaseTool {
         this._lastX       = 0;
         this._lastY       = 0;
 
-        // Stroke buffer: prevents intra-stroke accumulation (Photoshop behaviour)
-        this._baseCanvas  = null;  // snapshot at stroke start
-        this._strokeCanvas = null; // stamps accumulated during stroke
-        this._strokeCtx   = null;
+        // Scratch canvas for rendering a single stamp before reading its alpha
+        this._scratch    = document.createElement("canvas");
+        this._scratchCtx = this._scratch.getContext("2d", { willReadFrequently: true });
 
         // Cached stamp canvas; rebuilt when brush params change
         this._stamp      = null;
@@ -38,7 +37,6 @@ export class PaintTool extends BaseTool {
     deactivate() {
         this.drawCanvas.style.cursor = "";
         this._drawing = false;
-        this._clearStrokeBuffer();
     }
 
     /** Set an image brush loaded from the library. */
@@ -59,23 +57,27 @@ export class PaintTool extends BaseTool {
         this._drawing = true;
         this._lastX = x;
         this._lastY = y;
-        this._initStrokeBuffer();
-        this._paintToStroke(x, y);
-        this._mergeStroke();
+        this._applyStamps([this._renderStamp(x, y)]);
     }
 
     onMouseMove(x, y) {
         if (!this._drawing) return;
-        this._paintLineToStroke(this._lastX, this._lastY, x, y);
+        const x0 = this._lastX, y0 = this._lastY;
+        const dist  = Math.hypot(x - x0, y - y0);
+        const steps = Math.ceil(dist / Math.max(1, this.brushSize * this.spacing));
+        const stamps = [];
+        for (let i = 1; i <= steps; i++) {
+            const t = i / steps;
+            stamps.push(this._renderStamp(x0 + (x - x0) * t, y0 + (y - y0) * t));
+        }
+        this._applyStamps(stamps);
         this._lastX = x;
         this._lastY = y;
-        this._mergeStroke();
     }
 
     onMouseUp() {
         if (this._drawing) {
             this._drawing = false;
-            this._clearStrokeBuffer();
             this._notifyChange();
         }
     }
@@ -83,102 +85,101 @@ export class PaintTool extends BaseTool {
     onMouseLeave() {
         if (this._drawing) {
             this._drawing = false;
-            this._clearStrokeBuffer();
             this._notifyChange();
         }
     }
 
-    // ── Stroke buffer ────────────────────────────────────────────────
+    // ── Stamping ─────────────────────────────────────────────────────
 
-    _initStrokeBuffer() {
-        const w = this.drawCanvas.width;
-        const h = this.drawCanvas.height;
+    /**
+     * Render one stamp into the scratch canvas and return its alpha with its
+     * position on the draw canvas: { left, top, w, h, data }.
+     */
+    _renderStamp(x, y) {
+        const savedSize      = this.brushSize;
+        const savedAngle     = this.angle;
+        const savedStamp     = this._stamp;
+        const savedStampSize = this._stampSize;
+        if (this.sizeJitter) {
+            this.brushSize = savedSize * (1 - Math.random() * this.sizeJitterAmount);
+        }
+        if (this.rotationJitter) {
+            this.angle = Math.random() * 360;
+        }
 
-        this._baseCanvas = document.createElement("canvas");
-        this._baseCanvas.width = w;
-        this._baseCanvas.height = h;
-        this._baseCanvas.getContext("2d").drawImage(this.drawCanvas, 0, 0);
+        let ext = this.brushSize / 2;
+        if (this.brushImage) {
+            const stamp = this._getStamp(Math.round(this.brushSize));
+            ext = Math.hypot(stamp.width, stamp.height) / 2;
+        }
+        const left = Math.floor(x - ext) - 1;
+        const top  = Math.floor(y - ext) - 1;
+        const w    = Math.ceil(x + ext) + 1 - left;
+        const h    = Math.ceil(y + ext) + 1 - top;
+        this._scratch.width  = w;
+        this._scratch.height = h;
 
-        this._strokeCanvas = document.createElement("canvas");
-        this._strokeCanvas.width = w;
-        this._strokeCanvas.height = h;
-        this._strokeCtx = this._strokeCanvas.getContext("2d");
-    }
+        const origCtx = this.ctx;
+        this.ctx = this._scratchCtx;
+        if (this.brushImage) {
+            this._paintImageBrush(x - left, y - top, "add");
+        } else {
+            this._paintCircle(x - left, y - top, "add");
+        }
+        this.ctx = origCtx;
 
-    _clearStrokeBuffer() {
-        this._baseCanvas   = null;
-        this._strokeCanvas = null;
-        this._strokeCtx    = null;
+        // Restore jittered state so the base stamp cache stays valid
+        this.brushSize  = savedSize;
+        this.angle      = savedAngle;
+        this._stamp     = savedStamp;
+        this._stampSize = savedStampSize;
+
+        return { left, top, w, h, data: this._scratchCtx.getImageData(0, 0, w, h).data };
     }
 
     /**
-     * Composite base + stroke into drawCanvas.
-     * add:   lighten (max) — no intra-stroke accumulation
-     * erase: destination-out from the stroke mask
+     * Write stamps into the draw canvas taking the max of alpha (add) or capping
+     * alpha at 1 - stamp (erase), so overlapping soft edges never build up beyond
+     * the brush's own value — neither within a stroke nor over earlier strokes.
      */
-    _mergeStroke() {
-        const ctx = this.ctx;
-        const w = this.drawCanvas.width;
-        const h = this.drawCanvas.height;
-        ctx.clearRect(0, 0, w, h);
-        ctx.drawImage(this._baseCanvas, 0, 0);
-        if (this.mode === "erase") {
-            ctx.globalCompositeOperation = "destination-out";
-        } else {
-            ctx.globalCompositeOperation = "lighten";
+    _applyStamps(stamps) {
+        const cw = this.drawCanvas.width;
+        const ch = this.drawCanvas.height;
+        let x0 = cw, y0 = ch, x1 = 0, y1 = 0;
+        for (const s of stamps) {
+            x0 = Math.min(x0, s.left);
+            y0 = Math.min(y0, s.top);
+            x1 = Math.max(x1, s.left + s.w);
+            y1 = Math.max(y1, s.top + s.h);
         }
-        ctx.drawImage(this._strokeCanvas, 0, 0);
-        ctx.globalCompositeOperation = "source-over";
-    }
+        x0 = Math.max(0, x0); y0 = Math.max(0, y0);
+        x1 = Math.min(cw, x1); y1 = Math.min(ch, y1);
+        if (x0 >= x1 || y0 >= y1) return;
 
-    _paintLineToStroke(x0, y0, x1, y1) {
-        const dist = Math.hypot(x1 - x0, y1 - y0);
-        const step = Math.max(1, this.brushSize * this.spacing);
-        const steps = Math.ceil(dist / step);
-        for (let i = 1; i <= steps; i++) {
-            const t = i / steps;
-            this._paintToStroke(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t);
-        }
-    }
+        const tw = x1 - x0, th = y1 - y0;
+        const target = this.ctx.getImageData(x0, y0, tw, th);
+        const t = target.data;
+        const erase = this.mode === "erase";
 
-    /** Paint a single stamp into the stroke buffer (always source-over / add). */
-    _paintToStroke(x, y) {
-        const origCtx = this.ctx;
-        this.ctx = this._strokeCtx;
-
-        if (this.sizeJitter || this.rotationJitter) {
-            const savedSize      = this.brushSize;
-            const savedAngle     = this.angle;
-            const savedStamp     = this._stamp;
-            const savedStampSize = this._stampSize;
-
-            if (this.sizeJitter) {
-                this.brushSize = savedSize * (1 - Math.random() * this.sizeJitterAmount);
-            }
-            if (this.rotationJitter) {
-                this.angle = Math.random() * 360;
-            }
-
-            if (this.brushImage) {
-                this._paintImageBrush(x, y, "add");
-            } else {
-                this._paintCircle(x, y, "add");
-            }
-
-            // Restore all modified state so the base stamp cache stays valid
-            this.brushSize   = savedSize;
-            this.angle       = savedAngle;
-            this._stamp      = savedStamp;
-            this._stampSize  = savedStampSize;
-        } else {
-            if (this.brushImage) {
-                this._paintImageBrush(x, y, "add");
-            } else {
-                this._paintCircle(x, y, "add");
+        for (const s of stamps) {
+            const sx0 = Math.max(0, x0 - s.left), sx1 = Math.min(s.w, x1 - s.left);
+            const sy0 = Math.max(0, y0 - s.top),  sy1 = Math.min(s.h, y1 - s.top);
+            for (let sy = sy0; sy < sy1; sy++) {
+                let si = (sy * s.w + sx0) * 4 + 3;
+                let ti = ((s.top + sy - y0) * tw + (s.left + sx0 - x0)) * 4;
+                for (let sx = sx0; sx < sx1; sx++, si += 4, ti += 4) {
+                    const a = s.data[si];
+                    if (!a) continue;
+                    if (erase) {
+                        if (t[ti + 3] > 255 - a) t[ti + 3] = 255 - a;
+                    } else if (t[ti + 3] < a) {
+                        t[ti] = t[ti + 1] = t[ti + 2] = 255;
+                        t[ti + 3] = a;
+                    }
+                }
             }
         }
-
-        this.ctx = origCtx;
+        this.ctx.putImageData(target, x0, y0);
     }
 
     // ── Brush rendering ──────────────────────────────────────────────
