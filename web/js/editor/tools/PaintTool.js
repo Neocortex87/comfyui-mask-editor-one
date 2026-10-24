@@ -31,10 +31,12 @@ export class PaintTool extends BaseTool {
     }
 
     activate() {
-        this.drawCanvas.style.cursor = "crosshair";
+        // カーソルはエディタ側でブラシサイズの円として描画する
+        this.drawCanvas.style.cursor = "none";
     }
 
     deactivate() {
+        this.drawCanvas.style.cursor = "";
         this._drawing = false;
         this._clearStrokeBuffer();
     }
