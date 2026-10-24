@@ -1,6 +1,10 @@
+// crypto.randomUUID は安全なコンテキスト（HTTPS / localhost）でしか使えず、
+// LAN 経由の http アクセスでレイヤーが作れなくなるため、エディタ内で一意な ID を自前で振る
+let _layerSeq = 0;
+
 export class Layer {
     constructor(name, type, width, height) {
-        this.id = crypto.randomUUID();
+        this.id = `layer-${Date.now().toString(36)}-${++_layerSeq}`;
         this.name = name;
         this.type = type; // 'paint' | 'color' | 'transparency'
         this.canvas = document.createElement("canvas");
