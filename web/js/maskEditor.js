@@ -4,7 +4,7 @@ import { MaskEditorModal } from "./editor/MaskEditorModal.js";
 import { t } from "./editor/i18n.js";
 import { LayerManager } from "./editor/LayerManager.js";
 import { CanvasCompositor } from "./editor/CanvasCompositor.js";
-import { registerMaskPreviewCallback, unregisterMaskPreviewCallback, notifyMaskPreviewUpdate, persistBgImage } from "./editor/nodeState.js";
+import { registerMaskPreviewCallback, unregisterMaskPreviewCallback, notifyMaskPreviewUpdate, persistBgImage, nextPreviewMode, previewButtonLabel } from "./editor/nodeState.js";
 
 const _modalCache = new Map();
 
@@ -65,6 +65,43 @@ function _loadImage(src) {
     });
 }
 
+// マスクプレビューを不透明なグレースケール canvas に変換
+// （invert 時の PNG は白+アルファなので黒背景に合成する。invert=true で白黒反転）
+function _maskToCanvas(img, invert) {
+    const c = document.createElement("canvas");
+    c.width  = img.width;
+    c.height = img.height;
+    const ctx = c.getContext("2d");
+    ctx.fillStyle = "black";
+    ctx.fillRect(0, 0, c.width, c.height);
+    ctx.drawImage(img, 0, 0);
+    if (invert) {
+        ctx.globalCompositeOperation = "difference";
+        ctx.fillStyle = "white";
+        ctx.fillRect(0, 0, c.width, c.height);
+        ctx.globalCompositeOperation = "source-over";
+    }
+    return c;
+}
+
+// マスク画像の黒い部分に半透明の赤オーバーレイを生成
+// エディタのクイックマスク表示と同じく、invert 時は描いた部分が赤くなる
+function _makeMaskOverlay(maskImg) {
+    const c = document.createElement("canvas");
+    c.width  = maskImg.width;
+    c.height = maskImg.height;
+    const ctx = c.getContext("2d");
+    ctx.drawImage(maskImg, 0, 0);
+    const data = ctx.getImageData(0, 0, c.width, c.height);
+    const d = data.data;
+    for (let i = 0; i < d.length; i += 4) {
+        d[i + 3] = (255 - d[i]) * 0.5;
+        d[i] = 255; d[i + 1] = 0; d[i + 2] = 0;
+    }
+    ctx.putImageData(data, 0, 0);
+    return c;
+}
+
 // ノードプレビューの高さ
 const PREVIEW_H = 160;
 
@@ -86,10 +123,8 @@ app.registerExtension({
             registerMaskPreviewCallback(node, (maskDataUrl) => {
                 node._maskDataUrl = maskDataUrl;
                 _loadImage(maskDataUrl).then(img => {
-                    node._maskImg = img;
-                    node._previewMode = "mask";
-                    // mask表示中 → ボタンは「画像に切り替え」を示す
-                    if (node._viewWidget) node._viewWidget.name = t("node.showImage");
+                    node._maskImg = _maskToCanvas(img, false);
+                    node._maskOverlay = _makeMaskOverlay(node._maskImg);
                     _resizeNode(node);
                     node.setDirtyCanvas(true, true);
                 });
@@ -99,8 +134,10 @@ app.registerExtension({
             node._bgDataUrl     = null;   // BG 選択画像の data URL
             node._bgImg         = null;   // BG Image オブジェクト
             node._maskDataUrl   = null;   // Apply 後のマスクプレビュー data URL
-            node._maskImg       = null;   // マスク Image オブジェクト
-            node._previewMode   = "image"; // "image" | "mask"
+            node._maskImg       = null;   // マスク（グレースケール canvas）
+            node._maskOverlay   = null;   // masked 表示用の半透明赤オーバーレイ canvas
+            // 表示モード "image" | "mask" | "masked"。ワークフローに保存され、切り替え後も維持される
+            node.properties.preview_mode = "masked";
 
             // ─── BG ボタン ─────────────────────────────────
             const bgWidget = node.addWidget("button", t("node.loadImage"), null, () => {
@@ -116,15 +153,29 @@ app.registerExtension({
             });
             node._bgWidget = bgWidget;
 
-            // ─── IMG / MASK 切り替えボタン ─────────────────
+            // ─── IMG / MASK / MASKED 切り替えボタン ────────
             // ボタン名は「次にクリックすると切り替わる先」を示す
-            const viewWidget = node.addWidget("button", t("node.showMask"), null, () => {
-                node._previewMode = node._previewMode === "image" ? "mask" : "image";
-                viewWidget.name   = node._previewMode === "image" ? t("node.showMask") : t("node.showImage");
+            const viewWidget = node.addWidget("button", previewButtonLabel(node.properties.preview_mode), null, () => {
+                node.properties.preview_mode = nextPreviewMode(node.properties.preview_mode);
+                viewWidget.name = previewButtonLabel(node.properties.preview_mode);
                 _resizeNode(node);
                 node.setDirtyCanvas(true, true);
             });
             node._viewWidget = viewWidget;
+
+            // ─── invert_mask 切り替えでプレビューを即時反転 ───
+            // Apply 時の compositeGray と同じ結果（値 v → 255 - v）になる
+            const invertWidget = node.widgets.find(w => w.name === "invert_mask");
+            const origInvertCallback = invertWidget.callback;
+            invertWidget.callback = function () {
+                const res = origInvertCallback?.apply(this, arguments);
+                if (node._maskImg) {
+                    node._maskImg     = _maskToCanvas(node._maskImg, true);
+                    node._maskOverlay = _makeMaskOverlay(node._maskImg);
+                    node.setDirtyCanvas(true, true);
+                }
+                return res;
+            };
 
             // ─── Edit Mask ボタン ──────────────────────────
             node._editMaskWidget = node.addWidget("button", t("node.editMask"), null, () => openMaskEditor(node));
@@ -142,20 +193,24 @@ app.registerExtension({
                 ctx.fillStyle = "#111";
                 ctx.fillRect(x, y, w, h);
 
-                const img = this._previewMode === "mask" ? this._maskImg : this._bgImg;
+                const mode = this.properties.preview_mode;
+                const img = mode === "mask" ? this._maskImg : this._bgImg;
                 if (img) {
-                    const scale = Math.min(w / img.naturalWidth, h / img.naturalHeight);
-                    const dw = img.naturalWidth  * scale;
-                    const dh = img.naturalHeight * scale;
+                    const scale = Math.min(w / img.width, h / img.height);
+                    const dw = img.width  * scale;
+                    const dh = img.height * scale;
                     const dx = x + (w - dw) / 2;
                     const dy = y + (h - dh) / 2;
                     ctx.drawImage(img, dx, dy, dw, dh);
+                    if (mode === "masked" && this._maskOverlay) {
+                        ctx.drawImage(this._maskOverlay, dx, dy, dw, dh);
+                    }
 
                     ctx.fillStyle = "rgba(0,0,0,0.55)";
                     ctx.fillRect(x, y, 52, 16);
                     ctx.fillStyle = "#ccc";
                     ctx.font = "10px sans-serif";
-                    ctx.fillText(this._previewMode === "image" ? "IMAGE" : "MASK", x + 4, y + 11);
+                    ctx.fillText(mode.toUpperCase(), x + 4, y + 11);
                 } else {
                     ctx.strokeStyle = "#444";
                     ctx.lineWidth = 1;
@@ -225,6 +280,7 @@ app.registerExtension({
         nodeType.prototype.onConfigure = function (info) {
             if (origOnConfigure) origOnConfigure.apply(this, arguments);
             hideLayerDataWidget(this);
+            this._viewWidget.name = previewButtonLabel(this.properties.preview_mode);
             _resizeNode(this);
             if (this.properties?.bg_image) _restoreBgImage(this, this.properties.bg_image);
             _restoreMaskPreview(this);
@@ -287,8 +343,9 @@ async function _loadFileAsBg(node, file) {
             const dataUrl = ev.target.result;
             node._bgDataUrl   = dataUrl;
             node._bgImg       = await _loadImage(dataUrl);
-            node._previewMode = "image";
-            if (node._viewWidget) node._viewWidget.name = t("node.showMask");
+            // layer_data をリセットするのでマスクプレビューも破棄
+            node._maskImg     = null;
+            node._maskOverlay = null;
             _storeBgImage(node.id, dataUrl, file.name);
             persistBgImage(node, file);
             const lw = node.widgets?.find(w => w.name === "layer_data");
