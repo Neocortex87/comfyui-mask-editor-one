@@ -172,11 +172,16 @@ export class MaskEditorModal {
             if (e.target === overlay) this.close();
         });
 
-        // vector ツールのキーボードショートカット（モーダルが表示中のみ有効）
+        // キーボードショートカット（モーダルが表示中のみ有効）
         this._keyHandler = (e) => {
             if (this._overlay?.style.display === "none") return;
-            if (this._activeTool === "vector") {
-                this._tools.vector?.onKeyDown(e);
+            if (this._activeTool === "vector" && this._tools.vector?.onKeyDown(e)) return;
+            // Esc: ブラシライブラリが開いていれば閉じ、なければエディタを閉じる（Cancel と同じ）
+            if (e.key === "Escape") {
+                e.preventDefault();
+                e.stopPropagation();
+                if (this._brushLib.isOpen()) this._brushLib.close();
+                else this.close();
             }
         };
         document.addEventListener("keydown", this._keyHandler);

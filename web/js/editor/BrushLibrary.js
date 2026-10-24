@@ -35,6 +35,10 @@ export class BrushLibrary {
         if (this._overlay) this._overlay.style.display = "none";
     }
 
+    isOpen() {
+        return this._overlay?.style.display === "flex";
+    }
+
     // ── DOM ──────────────────────────────────────────────────────────
 
     _buildDOM() {
