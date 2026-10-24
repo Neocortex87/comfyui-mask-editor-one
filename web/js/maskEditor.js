@@ -161,7 +161,7 @@ app.registerExtension({
     // ComfyUI のキーバインド設定から変更可能
     commands: [{
         id: "MaskEditorOne.LoadGeneratedAndEdit",
-        label: "Mask Editor One: Load Generated Image & Edit",
+        label: "Mask Editor One: Fast Edit (load generated image & edit)",
         function: () => {
             const node = _shortcutTargetNode();
             if (node) _loadGeneratedAndEdit(node);
@@ -226,8 +226,9 @@ app.registerExtension({
             });
             node._bgWidget = bgWidget;
 
-            // ─── 生成画像を読み込んで編集ボタン ──────────────
+            // ─── Fast Edit ボタン（生成画像を読み込んで編集） ──
             node._loadGeneratedWidget = node.addWidget("button", t("node.loadGenerated"), null, () => _loadGeneratedAndEdit(node));
+            node._loadGeneratedWidget.tooltip = t("node.loadGeneratedTip");
 
             // ─── IMG / MASK / MASKED 切り替えボタン ────────
             // ボタン名は「次にクリックすると切り替わる先」を示す

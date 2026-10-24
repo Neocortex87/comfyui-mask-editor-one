@@ -2293,7 +2293,8 @@ export class MaskEditorModal {
             node._bgWidget.name = t("node.loadImage");
         }
         if (node._loadGeneratedWidget) {
-            node._loadGeneratedWidget.name = t("node.loadGenerated");
+            node._loadGeneratedWidget.name    = t("node.loadGenerated");
+            node._loadGeneratedWidget.tooltip = t("node.loadGeneratedTip");
         }
         if (node._editMaskWidget) {
             node._editMaskWidget.name = t("node.editMask");
