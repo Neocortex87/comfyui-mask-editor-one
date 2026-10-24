@@ -56,6 +56,7 @@ export class MaskEditorModal {
         this._canvasW    = CANVAS_SIZE;
         this._canvasH    = CANVAS_SIZE;
         this._painting   = false;
+        this._spaceHeld  = false;   // Space 押下中は左ドラッグでパン
         this._brushAdjusting = false;
         this._brushCursorPos = null;   // paint カーソルの最終位置（Ctrl 押下時の切り替え用）
         this._zoom       = 1.0;
@@ -144,6 +145,7 @@ export class MaskEditorModal {
     close() {
         if (this._overlay) this._overlay.style.display = "none";
         this._tools.paint?.saveSettings();
+        if (this._canvasAreaEl) this._setSpaceHeld(false);
     }
 
     // ────────────────────────────────────────────
@@ -174,9 +176,15 @@ export class MaskEditorModal {
             if (e.target === overlay) this.close();
         });
 
-        // キーボードショートカット（モーダルが表示中のみ有効）。keyup は Ctrl のカーソル切り替えのみ
+        // キーボードショートカット（モーダルが表示中のみ有効）。keyup は Space パン / Ctrl カーソルの解除のみ
         this._keyHandler = (e) => {
             if (this._overlay?.style.display === "none") return;
+            // Space 押下中は左ドラッグでパン（Photoshop 風）。テキスト入力中は除外
+            if (e.code === "Space" && !e.target.matches?.("textarea, input[type=text], input[type=number]")) {
+                e.preventDefault();
+                this._setSpaceHeld(e.type === "keydown");
+                return;
+            }
             if (e.key === "Control" && this._activeTool === "paint" && this._brushCursorPos && !this._brushAdjusting) {
                 this._updateBrushCursor(this._brushCursorPos.x, this._brushCursorPos.y, e.type === "keydown");
             }
@@ -198,6 +206,15 @@ export class MaskEditorModal {
         };
         document.addEventListener("keydown", this._keyHandler);
         document.addEventListener("keyup", this._keyHandler);
+    }
+
+    _setSpaceHeld(held) {
+        this._spaceHeld = held;
+        this._canvasAreaEl.classList.toggle("space-pan", held);
+    }
+
+    _isPanButton(e) {
+        return e.button === 1 || (e.button === 0 && this._spaceHeld);
     }
 
     _buildHeader() {
@@ -280,10 +297,11 @@ export class MaskEditorModal {
             area.scrollTop  += after.top  + fy * after.height - e.clientY;
         }, { passive: false });
 
-        // 中ボタンドラッグでパン
+        // 中ボタンドラッグ / Space+左ドラッグでパン
         area.addEventListener("mousedown", e => {
-            if (e.button !== 1) return;
+            if (!this._isPanButton(e)) return;
             e.preventDefault();
+            const button = e.button;
             let lastX = e.clientX, lastY = e.clientY;
             area.classList.add("panning");
             const onMove = e2 => {
@@ -293,7 +311,7 @@ export class MaskEditorModal {
                 lastY = e2.clientY;
             };
             const onUp = e2 => {
-                if (e2.button !== 1) return;
+                if (e2.button !== button) return;
                 document.removeEventListener("mousemove", onMove);
                 document.removeEventListener("mouseup", onUp);
                 area.classList.remove("panning");
@@ -1401,7 +1419,7 @@ export class MaskEditorModal {
         const cv = this._drawCanvas;
 
         cv.addEventListener("mousedown", e => {
-            if (e.button === 1) return; // 中ボタンはパン用
+            if (this._isPanButton(e)) return; // パンはキャンバスエリア側で処理
             // text ツールはオーバーレイ表示のみ（undo/sync は stamp 確定時に実行）
             if (this._activeTool === "text") {
                 const { x, y } = BaseTool.getCanvasPos(cv, e);
