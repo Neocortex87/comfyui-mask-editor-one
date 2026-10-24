@@ -66,9 +66,12 @@ export class VectorTool extends BaseTool {
         this._renderPreview();
     }
 
-    /** MaskEditorModal からキーボードイベントを転送してもらう */
+    /**
+     * MaskEditorModal からキーボードイベントを転送してもらう
+     * @returns {boolean} キーを処理した場合 true（Esc はパス編集中のみ処理し、それ以外はエディタを閉じる）
+     */
     onKeyDown(e) {
-        if (e.key === "Escape") {
+        if (e.key === "Escape" && this._points.length > 0) {
             e.preventDefault();
             this.reset();
         } else if (e.key === "Enter" && this._points.length >= 2) {
@@ -78,7 +81,10 @@ export class VectorTool extends BaseTool {
             e.preventDefault();
             this._points.pop();
             this._renderPreview();
+        } else {
+            return false;
         }
+        return true;
     }
 
     // ────────────────────────────────────────────
