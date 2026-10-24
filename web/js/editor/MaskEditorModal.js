@@ -249,11 +249,17 @@ export class MaskEditorModal {
         this._canvasContainer = container;
         area.appendChild(container);
 
-        // マウスホイールでズーム
+        // マウスホイールでズーム（カーソル位置を中心に）
         area.addEventListener("wheel", e => {
             e.preventDefault();
             const delta = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+            const before = container.getBoundingClientRect();
+            const fx = (e.clientX - before.left) / before.width;
+            const fy = (e.clientY - before.top)  / before.height;
             this._setZoom(this._zoom * delta);
+            const after = container.getBoundingClientRect();
+            area.scrollLeft += after.left + fx * after.width  - e.clientX;
+            area.scrollTop  += after.top  + fy * after.height - e.clientY;
         }, { passive: false });
 
         // キャンバスエリアへの画像ドロップでBGを設定
