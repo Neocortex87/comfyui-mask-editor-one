@@ -1,5 +1,6 @@
 // v0.1.6
 import { app } from "../../../scripts/app.js";
+import { api } from "../../../scripts/api.js";
 import { MaskEditorModal } from "./editor/MaskEditorModal.js";
 import { t } from "./editor/i18n.js";
 import { LayerManager } from "./editor/LayerManager.js";
@@ -7,6 +8,13 @@ import { CanvasCompositor } from "./editor/CanvasCompositor.js";
 import { registerMaskPreviewCallback, unregisterMaskPreviewCallback, notifyMaskPreviewUpdate, persistBgImage, nextPreviewMode, previewButtonLabel } from "./editor/nodeState.js";
 
 const _modalCache = new Map();
+
+// 最後に実行されたノードが出力した画像（↪ Load Generated Image & Edit 用）
+let _lastGeneratedImage = null;
+api.addEventListener("executed", ({ detail }) => {
+    const images = detail?.output?.images;
+    if (images?.length) _lastGeneratedImage = images[0];
+});
 
 // ノードごとの BG 画像 file input（共有）
 let _bgFileInput = null;
@@ -40,6 +48,19 @@ function hideLayerDataWidget(node) {
     }
     w.draw = () => {};
     w.computeSize = () => [0, -4];
+}
+
+// 最後に生成された画像を新しい BG として読み込み、そのままエディタを開く
+async function _loadGeneratedAndEdit(node) {
+    const img = _lastGeneratedImage;
+    if (!img) {
+        app.extensionManager.toast.add({ severity: "warn", summary: "Mask Editor One", detail: t("node.noGenerated"), life: 4000 });
+        return;
+    }
+    const params = new URLSearchParams({ filename: img.filename, subfolder: img.subfolder ?? "", type: img.type ?? "output" });
+    const blob = await (await fetch("/view?" + params)).blob();
+    await _loadFileAsBg(node, new File([blob], img.filename, { type: blob.type }));
+    openMaskEditor(node);
 }
 
 // BG 画像をサーバーキャッシュに送信
@@ -183,6 +204,9 @@ app.registerExtension({
                 input.click();
             });
             node._bgWidget = bgWidget;
+
+            // ─── 生成画像を読み込んで編集ボタン ──────────────
+            node._loadGeneratedWidget = node.addWidget("button", t("node.loadGenerated"), null, () => _loadGeneratedAndEdit(node));
 
             // ─── IMG / MASK / MASKED 切り替えボタン ────────
             // ボタン名は「次にクリックすると切り替わる先」を示す
