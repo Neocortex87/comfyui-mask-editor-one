@@ -2084,6 +2084,9 @@ export class MaskEditorModal {
         if (node._bgWidget) {
             node._bgWidget.name = t("node.loadImage");
         }
+        if (node._loadGeneratedWidget) {
+            node._loadGeneratedWidget.name = t("node.loadGenerated");
+        }
         if (node._editMaskWidget) {
             node._editMaskWidget.name = t("node.editMask");
         }
