@@ -946,6 +946,20 @@
     pointer-events: none;
 }
 
+#me-brush-ring {
+    display: none;
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 4;
+    box-sizing: border-box;
+    border: 1px solid white;
+    border-radius: 50%;
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.6), inset 0 0 0 1px rgba(0,0,0,0.6);
+    pointer-events: none;
+    will-change: transform;
+}
+
 /* ヒントテキスト */
 .me-vector-hint {
     font-size: 10px;
