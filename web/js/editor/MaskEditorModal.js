@@ -57,6 +57,7 @@ export class MaskEditorModal {
         this._canvasH    = CANVAS_SIZE;
         this._painting   = false;
         this._brushAdjusting = false;
+        this._brushCursorPos = null;   // paint カーソルの最終位置（Ctrl 押下時の切り替え用）
         this._zoom       = 1.0;
         this._zoomMin    = 0.05;
         this._zoomMax    = 8.0;
@@ -173,9 +174,13 @@ export class MaskEditorModal {
             if (e.target === overlay) this.close();
         });
 
-        // キーボードショートカット（モーダルが表示中のみ有効）
+        // キーボードショートカット（モーダルが表示中のみ有効）。keyup は Ctrl のカーソル切り替えのみ
         this._keyHandler = (e) => {
             if (this._overlay?.style.display === "none") return;
+            if (e.key === "Control" && this._activeTool === "paint" && this._brushCursorPos && !this._brushAdjusting) {
+                this._updateBrushCursor(this._brushCursorPos.x, this._brushCursorPos.y, e.type === "keydown");
+            }
+            if (e.type !== "keydown") return;
             // Ctrl+Z / Ctrl+Y (Ctrl+Shift+Z): undo / redo。テキスト入力中は除外
             // ComfyUI のグラフ undo（window で待ち受け）に届かないよう伝播を止める
             const key = e.key.toLowerCase();
@@ -192,6 +197,7 @@ export class MaskEditorModal {
             }
         };
         document.addEventListener("keydown", this._keyHandler);
+        document.addEventListener("keyup", this._keyHandler);
     }
 
     _buildHeader() {
@@ -1414,6 +1420,9 @@ export class MaskEditorModal {
                 return;
             }
 
+            // Ctrl+ドラッグ: 3px の硬いドット（マスク範囲の目印用）。ブラシ設定は mouseup で戻す
+            const restoreBrush = this._activeTool === "paint" && e.ctrlKey ? this._useDotBrush() : null;
+
             this._painting = true;
             this._saveUndoState();
             const { x, y } = BaseTool.getCanvasPos(cv, e);
@@ -1435,6 +1444,7 @@ export class MaskEditorModal {
             const onDocUp = (e2) => {
                 document.removeEventListener("mousemove", onDocMove);
                 document.removeEventListener("mouseup", onDocUp);
+                restoreBrush?.();
                 if (!this._painting) return;
                 this._painting = false;
                 const pos = BaseTool.getCanvasPos(cv, e2);
@@ -1455,11 +1465,13 @@ export class MaskEditorModal {
                 this._tools.vector.onMouseMove(x, y, e);
             } else if (this._activeTool === "paint" && !this._brushAdjusting) {
                 const { x, y } = BaseTool.getCanvasPos(cv, e);
-                this._updateBrushCursor(x, y);
+                this._brushCursorPos = { x, y };
+                this._updateBrushCursor(x, y, e.ctrlKey);
             }
         });
 
         cv.addEventListener("mouseleave", () => {
+            this._brushCursorPos = null;
             if (this._activeTool === "vector") {
                 this._tools.vector.onMouseLeave();
             } else if (this._activeTool === "paint" && !this._brushAdjusting) {
@@ -1520,7 +1532,7 @@ export class MaskEditorModal {
             this._brushAdjusting = false;
             if (e2.target === this._drawCanvas) {
                 const pos = BaseTool.getCanvasPos(this._drawCanvas, e2);
-                this._updateBrushCursor(pos.x, pos.y);
+                this._updateBrushCursor(pos.x, pos.y, e2.ctrlKey);
             } else {
                 const vp = this._vectorPreviewCanvas;
                 vp.getContext("2d").clearRect(0, 0, vp.width, vp.height);
@@ -1552,14 +1564,29 @@ export class MaskEditorModal {
         this._strokeBrushOutline(ctx, x, y);
     }
 
+    /** Ctrl 中の 3px ドット用にブラシ設定を一時的に置き換え、元に戻す関数を返す */
+    _useDotBrush() {
+        const tool  = this._tools.paint;
+        const saved = {
+            brushSize: tool.brushSize, hardness: tool.hardness, brushImage: tool.brushImage,
+            sizeJitter: tool.sizeJitter, rotationJitter: tool.rotationJitter,
+        };
+        Object.assign(tool, { brushSize: 3, hardness: 1, brushImage: null, sizeJitter: false, rotationJitter: false });
+        return () => Object.assign(tool, saved);
+    }
+
     /**
-     * paint ツールのカーソル（ブラシサイズの円）
+     * paint ツールのカーソル（ブラシサイズの円、dot=true なら Ctrl ドット用の十字）
      * CSS カーソルは OS が描画するため遅延がない。ブラウザのカーソル画像上限 (128px) を超える場合のみキャンバスに描画
      */
-    _updateBrushCursor(x, y) {
+    _updateBrushCursor(x, y, dot) {
         const vp  = this._vectorPreviewCanvas;
         const ctx = vp.getContext("2d");
         ctx.clearRect(0, 0, vp.width, vp.height);
+        if (dot) {
+            this._drawCanvas.style.cursor = "crosshair";
+            return;
+        }
 
         const d    = Math.max(this._tools.paint.brushSize * this._zoom, 4);
         const size = 2 * Math.ceil(d / 2 + 2);
@@ -2205,6 +2232,7 @@ export class MaskEditorModal {
         if (this._overlay) {
             this._overlay.remove();
             document.removeEventListener("keydown", this._keyHandler);
+            document.removeEventListener("keyup", this._keyHandler);
         }
         this._overlay    = null;
         this._layerMgr   = null;
