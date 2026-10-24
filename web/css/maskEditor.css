@@ -140,6 +140,7 @@
 .me-canvas-container {
     position: relative;
     box-shadow: 0 0 0 1px #555;
+    margin: auto;  /* 表示エリアより小さい時は中央、大きい時はスクロール可能なまま */
 }
 
 .me-canvas-container canvas {
