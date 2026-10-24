@@ -152,6 +152,14 @@
 }
 
 #me-bg-canvas    { z-index: 0; }
+#me-bg-image {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 0;
+    opacity: 0.85;
+    pointer-events: none;
+}
 #me-draw-canvas  { z-index: 1; cursor: crosshair; }
 .me-canvas-area.panning,
 .me-canvas-area.panning * { cursor: grabbing !important; }

@@ -324,8 +324,12 @@ export class MaskEditorModal {
         this._drawCanvas.style.opacity = "0"; // 描画内容はpreviewCanvasで表示
         this._previewCanvas      = this._makeCanvas("me-preview-canvas",       2);
         this._vectorPreviewCanvas = this._makeCanvas("me-vector-preview-canvas", 3);
+        // 表示用の元解像度 BG 画像。_bgCanvas はマスク解像度のまま（ColorTool 等のピクセル参照用）
+        this._bgImgEl = document.createElement("img");
+        this._bgImgEl.id = "me-bg-image";
 
         container.appendChild(this._bgCanvas);
+        container.appendChild(this._bgImgEl);
         container.appendChild(this._drawCanvas);
         container.appendChild(this._previewCanvas);
         container.appendChild(this._vectorPreviewCanvas);
@@ -1608,6 +1612,12 @@ export class MaskEditorModal {
         const ctx = this._bgCanvas.getContext("2d");
         ctx.clearRect(0, 0, this._canvasW, this._canvasH);
 
+        // 画像は元解像度の <img> で表示し、マスク解像度の _bgCanvas はその下に隠す
+        const showImg = this._showImage && !!this._bgImage;
+        if (showImg && this._bgImgEl.src !== this._bgImage.src) this._bgImgEl.src = this._bgImage.src;
+        this._bgImgEl.style.display    = showImg ? "" : "none";
+        this._bgCanvas.style.visibility = showImg ? "hidden" : "";
+
         if (this._showImage && this._bgImage) {
             ctx.globalAlpha = 0.85;
             ctx.drawImage(this._bgImage, 0, 0, this._canvasW, this._canvasH);
@@ -1885,7 +1895,7 @@ export class MaskEditorModal {
         const dh = Math.round(this._canvasH * this._zoom);
 
         // CSS表示サイズのみ変更（canvas解像度は変えない）
-        for (const cv of [this._bgCanvas, this._drawCanvas, this._previewCanvas, this._vectorPreviewCanvas]) {
+        for (const cv of [this._bgCanvas, this._bgImgEl, this._drawCanvas, this._previewCanvas, this._vectorPreviewCanvas]) {
             cv.style.width  = dw + "px";
             cv.style.height = dh + "px";
         }
