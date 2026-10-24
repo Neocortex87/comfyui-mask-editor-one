@@ -172,9 +172,20 @@ export class MaskEditorModal {
             if (e.target === overlay) this.close();
         });
 
-        // vector ツールのキーボードショートカット（モーダルが表示中のみ有効）
+        // キーボードショートカット（モーダルが表示中のみ有効）
         this._keyHandler = (e) => {
             if (this._overlay?.style.display === "none") return;
+            // Ctrl+Z / Ctrl+Y (Ctrl+Shift+Z): undo / redo。テキスト入力中は除外
+            // ComfyUI のグラフ undo（window で待ち受け）に届かないよう伝播を止める
+            const key = e.key.toLowerCase();
+            if ((e.ctrlKey || e.metaKey) && (key === "z" || key === "y")
+                && !e.target.matches?.("textarea, input[type=text], input[type=number]")) {
+                e.preventDefault();
+                e.stopPropagation();
+                if (key === "y" || e.shiftKey) this._redo();
+                else this._undo();
+                return;
+            }
             if (this._activeTool === "vector") {
                 this._tools.vector?.onKeyDown(e);
             }
