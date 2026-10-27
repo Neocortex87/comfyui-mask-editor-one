@@ -249,12 +249,40 @@ export class MaskEditorModal {
         this._canvasContainer = container;
         area.appendChild(container);
 
-        // マウスホイールでズーム
+        // マウスホイールでズーム（カーソル位置を中心に）
         area.addEventListener("wheel", e => {
             e.preventDefault();
             const delta = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+            const before = container.getBoundingClientRect();
+            const fx = (e.clientX - before.left) / before.width;
+            const fy = (e.clientY - before.top)  / before.height;
             this._setZoom(this._zoom * delta);
+            const after = container.getBoundingClientRect();
+            area.scrollLeft += after.left + fx * after.width  - e.clientX;
+            area.scrollTop  += after.top  + fy * after.height - e.clientY;
         }, { passive: false });
+
+        // 中ボタンドラッグでパン
+        area.addEventListener("mousedown", e => {
+            if (e.button !== 1) return;
+            e.preventDefault();
+            let lastX = e.clientX, lastY = e.clientY;
+            area.classList.add("panning");
+            const onMove = e2 => {
+                area.scrollLeft -= e2.clientX - lastX;
+                area.scrollTop  -= e2.clientY - lastY;
+                lastX = e2.clientX;
+                lastY = e2.clientY;
+            };
+            const onUp = e2 => {
+                if (e2.button !== 1) return;
+                document.removeEventListener("mousemove", onMove);
+                document.removeEventListener("mouseup", onUp);
+                area.classList.remove("panning");
+            };
+            document.addEventListener("mousemove", onMove);
+            document.addEventListener("mouseup", onUp);
+        });
 
         // キャンバスエリアへの画像ドロップでBGを設定
         area.addEventListener("dragenter", e => {
@@ -1350,6 +1378,7 @@ export class MaskEditorModal {
         const cv = this._drawCanvas;
 
         cv.addEventListener("mousedown", e => {
+            if (e.button === 1) return; // 中ボタンはパン用
             // text ツールはオーバーレイ表示のみ（undo/sync は stamp 確定時に実行）
             if (this._activeTool === "text") {
                 const { x, y } = BaseTool.getCanvasPos(cv, e);
