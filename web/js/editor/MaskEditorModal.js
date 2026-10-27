@@ -262,6 +262,28 @@ export class MaskEditorModal {
             area.scrollTop  += after.top  + fy * after.height - e.clientY;
         }, { passive: false });
 
+        // 中ボタンドラッグでパン
+        area.addEventListener("mousedown", e => {
+            if (e.button !== 1) return;
+            e.preventDefault();
+            let lastX = e.clientX, lastY = e.clientY;
+            area.classList.add("panning");
+            const onMove = e2 => {
+                area.scrollLeft -= e2.clientX - lastX;
+                area.scrollTop  -= e2.clientY - lastY;
+                lastX = e2.clientX;
+                lastY = e2.clientY;
+            };
+            const onUp = e2 => {
+                if (e2.button !== 1) return;
+                document.removeEventListener("mousemove", onMove);
+                document.removeEventListener("mouseup", onUp);
+                area.classList.remove("panning");
+            };
+            document.addEventListener("mousemove", onMove);
+            document.addEventListener("mouseup", onUp);
+        });
+
         // キャンバスエリアへの画像ドロップでBGを設定
         area.addEventListener("dragenter", e => {
             if ([...e.dataTransfer.types].includes("Files")) {
@@ -1356,6 +1378,7 @@ export class MaskEditorModal {
         const cv = this._drawCanvas;
 
         cv.addEventListener("mousedown", e => {
+            if (e.button === 1) return; // 中ボタンはパン用
             // text ツールはオーバーレイ表示のみ（undo/sync は stamp 確定時に実行）
             if (this._activeTool === "text") {
                 const { x, y } = BaseTool.getCanvasPos(cv, e);

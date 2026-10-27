@@ -153,6 +153,8 @@
 
 #me-bg-canvas    { z-index: 0; }
 #me-draw-canvas  { z-index: 1; cursor: crosshair; }
+.me-canvas-area.panning,
+.me-canvas-area.panning * { cursor: grabbing !important; }
 #me-preview-canvas { z-index: 2; pointer-events: none; }
 
 /* ===== Right panel ===== */
